@@ -15,8 +15,21 @@ concurrency:
 
 jobs:
   compile-esp-sketch:
-    name: "Build ESP Master Sketch"
+    name: "Build ESP Master Sketch (${{ matrix.board.name }})"
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+          - name: esp8266
+            fqbn: "esp8266:esp8266:generic"
+            platform-name: esp8266:esp8266
+            platform-source-url: https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          - name: esp32
+            fqbn: "esp32:esp32:esp32"
+            platform-name: esp32:esp32
+            platform-source-url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
     steps:
       - name: Checkout Repository
@@ -25,10 +38,10 @@ jobs:
       - name: Compile sketch
         uses: arduino/compile-sketches@v1
         with:
-          fqbn: "esp8266:esp8266:generic"
+          fqbn: ${{ matrix.board.fqbn }}
           platforms: |
-            - name: esp8266:esp8266
-              source-url: https://arduino.esp8266.com/stable/package_esp8266com_index.json
+            - name: ${{ matrix.board.platform-name }}
+              source-url: ${{ matrix.board.platform-source-url }}
           sketch-paths: |
             - ./ESPMaster
           libraries: |

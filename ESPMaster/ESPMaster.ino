@@ -78,16 +78,36 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+
+//Platform specific WiFi/TCP/mDNS libraries. ESPAsyncWebSrv sits on top of whichever
+//TCP library is pulled in below so it can be used unchanged on either platform.
+#if defined(ESP8266)
 #include <ESPAsyncTCP.h>
-#include <ESPAsyncWebSrv.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
+#elif defined(ESP32)
+#include <AsyncTCP.h>
+#include <WiFi.h>
+#include <ESPmDNS.h>
+#endif
+
+#include <ESPAsyncWebSrv.h>
 #include <ezTime.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <Wire.h>
 #include "Classes.h"
 #include "LittleFS.h"
+
+//I2C pins used to talk to the units. ESP01 (ESP8266) only exposes GPIO1/GPIO3 (its TX/RX pins)
+//for this purpose, whereas an ESP32 dev board has dedicated I2C pins broken out (default SDA/SCL).
+#if defined(ESP8266)
+#define I2C_SDA_PIN 1
+#define I2C_SCL_PIN 3
+#elif defined(ESP32)
+#define I2C_SDA_PIN 21
+#define I2C_SCL_PIN 22
+#endif
 /* .------------------------------------------------------------------------------------. */
 /* |  ___           __ _                    _    _       ___     _   _   _              | */
 /* | / __|___ _ _  / _(_)__ _ _  _ _ _ __ _| |__| |___  / __|___| |_| |_(_)_ _  __ _ ___| */
@@ -231,11 +251,8 @@ void setup() {
   //Setup so we can see serial messages
   Serial.begin(SERIAL_BAUDRATE);
 #else
-  //For ESP01 only
-  Wire.begin(1, 3); 
-  
   //De-activate I2C if debugging the ESP, otherwise serial does not work
-  //Wire.begin(D1, D2); //For NodeMCU testing only SDA=D1 and SCL=D2
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
 #endif
   SerialPrintln("");
   SerialPrintln("#######################################################");

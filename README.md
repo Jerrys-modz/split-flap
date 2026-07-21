@@ -60,7 +60,7 @@ Also the code has been refactored to try facilitate easier development:
 
 ## General
 
-The display's electronics use 1 x ESP01 (ESP8266) as the main hub and up to 16 Arduinos as receivers. The ESP handles the web interface and communicates to the units via I2C. Each unit is resposible for setting the zero position of the drum on startup and displaying any letter the main hub send its way.
+The display's electronics use 1 x ESP01 (ESP8266) or ESP32 board as the main hub and up to 16 Arduinos as receivers. The ESP handles the web interface and communicates to the units via I2C. Each unit is resposible for setting the zero position of the drum on startup and displaying any letter the main hub send its way.
 
 Assemble everything according to the instruction manual which you can find on [GitHub](./Instructions/SplitFlapInstructions.pdf).
 
@@ -106,42 +106,59 @@ This is how my 10 units are set, 1 means switch is in the up-position:
 | ------ | ------ | ------ | ------ | ------ | ------ | ------ | ------ | ------ | ------- |
 | 0000   | 0001   | 0010   | 0011   | 0100   | 0101   | 0110   | 0111   | 1000   | 1001    |
 
-### ESP01/ESP8266
+### ESP01/ESP8266 or ESP32
+
+The ESPMaster sketch supports both an ESP01 (ESP8266) and an ESP32 board as the main hub - the code auto-detects which platform it is being compiled for and adjusts itself accordingly (WiFi/mDNS/TCP libraries, I2C pins, etc). Pick whichever board you have to hand and follow the relevant instructions below.
 
 #### Pre-requisites
 
 To upload the sketch to the ESP you need to install a few things to your arduino IDE.
 
-- Install the ESP8266 board to your Arduino IDE. You can follow [this tutorial](https://randomnerdtutorials.com/how-to-install-esp8266-board-arduino-ide/)
-- Install the arduino ESP8266 littleFS plugin to use the file system of the ESP, you can follow [this tutorial](https://randomnerdtutorials.com/install-esp8266-nodemcu-littlefs-arduino/)
+- Install the board package for your chip to your Arduino IDE:
+  - ESP8266: You can follow [this tutorial](https://randomnerdtutorials.com/how-to-install-esp8266-board-arduino-ide/)
+  - ESP32: You can follow [this tutorial](https://randomnerdtutorials.com/installing-esp32-arduino-ide-2-0/)
+- Install the LittleFS data upload plugin for your chip to be able to upload the static website files (see [Uploading the Static Assets via LittleFS](#uploading-the-static-assets-via-littlefs) below):
+  - ESP8266: Follow [this tutorial](https://randomnerdtutorials.com/install-esp8266-nodemcu-littlefs-arduino/)
+  - ESP32: Follow [this tutorial](https://randomnerdtutorials.com/install-esp32-esp8266-littlefs-arduino/) - note it uses the community [arduino-littlefs-upload](https://github.com/earlephilhower/arduino-littlefs-upload) plugin, which works with Arduino IDE 2.x
 - Install the following libraries via Library Manager:
   - [ArduinoJSON](https://github.com/bblanchon/ArduinoJson) - Version: 7.0.4
   - [ESPAsyncWebSrv](https://github.com/dvarrel/ESPAsyncWebSrv) - Version: 1.2.7
     - Dependencies which should be installed automatically:
-      - [ESPAsyncTCP](https://github.com/dvarrel/ESPAsyncTCP)
-      - [AsyncTCP](https://github.com/dvarrel/AsyncTCP)
+      - [ESPAsyncTCP](https://github.com/dvarrel/ESPAsyncTCP) - Used on ESP8266
+      - [AsyncTCP](https://github.com/dvarrel/AsyncTCP) - Used on ESP32
   - [NTPClient](https://github.com/arduino-libraries/NTPClient) - Version: 3.2.1
   - [ezTime](https://github.com/ropg/ezTime) - Version: 0.8.3
   - [LinkedList](https://github.com/ivanseidel/LinkedList) - Version: 1.3.3
   - [WiFiManager](https://github.com/tzapu/WiFiManager) - Version: 2.0.17
 
-To upload sketches to the ESP8266 you can either use an [Arduino Uno](https://create.arduino.cc/projecthub/pratikdesai/how-to-program-esp8266-esp-01-module-with-arduino-uno-598166) or you can buy a dedicated programmer. It is highly recommend getting a programmer as it makes uploading programs onto the ESP8266 much faster.
+To upload sketches to the ESP8266 you can either use an [Arduino Uno](https://create.arduino.cc/projecthub/pratikdesai/how-to-program-esp8266-esp-01-module-with-arduino-uno-598166) or you can buy a dedicated programmer. It is highly recommend getting a programmer as it makes uploading programs onto the ESP8266 much faster. An ESP32 dev board, on the other hand, typically has a USB port built in and can be programmed directly.
 
 > Note: Be wary of ESP8266 programmers that are available which allow USB connection to your PC which may not have programming abilities. Typically extra switches are available so that the ESP8266 can be put in programming mode, although you can modify the programmer through a simple solder job to allow it to enter programming mode. Examples can be found in the customer reviews of [Amazon](https://www.amazon.co.uk/gp/product/B078J7LDLY/ref=ppx_yo_dt_b_search_asin_title?ie=UTF8&th=1).
 
 > Alternatively, you can get a dedicated programmer from Amazon such as [this one](https://www.amazon.co.uk/dp/B083QHJW21). This is also available on [AliExpress](https://www.aliexpress.com/item/1005001793822720.html?spm=a2g0o.detail.0.0.48622aefV0Zv89&mp=1) if you are willing to wait a while for it.
 
+#### I2C Wiring
+
+The main hub talks to the units over I2C. Which pins are used is fixed in `ESPMaster.ino` based on which platform you are compiling for:
+
+| Platform | SDA Pin | SCL Pin |
+| -------- | ------- | ------- |
+| ESP8266 (ESP01) | GPIO1 (TX) | GPIO3 (RX) |
+| ESP32 | GPIO21 | GPIO22 |
+
+The ESP8266 pins are fixed to GPIO1/GPIO3 as an ESP01 only breaks out those two GPIO pins to use. If you're wiring up an ESP32 board and want to use different pins than the defaults above (for example if those pins are already in use on your board), change the `I2C_SDA_PIN`/`I2C_SCL_PIN` defines near the top of `ESPMaster.ino`.
+
 #### Uploading the Static Assets via LittleFS
 
 There are static files located [here](./ESPMaster/data/) in the `data` folder of ESPMaster which will need to be uploaded. These make up the website that will be accessible on your WiFi so you can update the Split-Flap display.
 
-Open the sketch `ESPMaster.ino` in the `ESPMaster` folder, change your board to "Generic ESP8266 Module", choose the correct COM-port and click:
+Open the sketch `ESPMaster.ino` in the `ESPMaster` folder, change your board to "Generic ESP8266 Module" (ESP8266) or your specific ESP32 dev board, e.g. "ESP32 Dev Module" (ESP32), choose the correct COM-port and click:
 
-> Tools -> ESP8266 LittleFS Data Upload
+> Tools -> ESP8266 LittleFS Data Upload (ESP8266) or Tools -> ESP32 LittleFS Data Upload (ESP32)
 
-This uploads the website onto the ESP8266's file system.
+This uploads the website onto the file system.
 
-**NOTE:** No sketch has been uploaded yet! Only the static files. At the time of writing, this will also only work on an older version of Arduino IDE < version 2. The latest Arduino IDE broke support for Plugins such as the LittleFS plugin.
+**NOTE:** No sketch has been uploaded yet! Only the static files. Older versions of the LittleFS upload plugins for the ESP8266 core only work on an older version of Arduino IDE < version 2, as the older plugin architecture used by the Arduino IDE 1.x "Tools" menu was dropped in Arduino IDE 2.x. If you're using Arduino IDE 2.x, use the community [arduino-littlefs-upload](https://github.com/earlephilhower/arduino-littlefs-upload) plugin instead (linked above), which supports both ESP8266 and ESP32 and works with Arduino IDE 2.x.
 
 #### Updating Settings of the Sketch
 
@@ -205,13 +222,14 @@ Code has been added to be able to set a Static IP Address on device. To do this:
 
 #### Sketch Upload
 
-So far we've only uploaded static files to the ESP8266. You now need to `Upload` the sketch to the ESP8266. Click on Upload and the ESP8266 will be upadted with the sketch and you are done. Stick the ESP8266 onto the first unit's PCB and navigate to the IP-address the ESP8266 is getting assigned from your router.
+So far we've only uploaded static files to the ESP. You now need to `Upload` the sketch to the device. Click on Upload and the ESP will be updated with the sketch and you are done. Stick the ESP onto the first unit's PCB and navigate to the IP-address the ESP is getting assigned from your router.
 
 ### Common Problems
 
 - If the ESP is not talking to the units correctly, check the `UNITSAMOUNT` in the `ESPMaster.ino`. The amount of units connected has to match.
-- ESP Serial debugging must be set to "false" for ESP01 to communicate to Nanos over I2C.
-- Ensure you upload the sketch and the LittleFS sketch upload to the ESP8266.
+- ESP Serial debugging must be set to "false" for the ESP to communicate to Nanos over I2C.
+- Ensure you upload the sketch and the LittleFS sketch upload to the ESP.
 - When the system is powered, your Hall Sensor should only light up when a magnet is nearby.
-- Ensure you are running an older version of Arduino IDE to be able to upload static files to the device. You will need a version prior to version 2.x.
+- If using an older Arduino IDE plugin for the LittleFS upload (rather than the [arduino-littlefs-upload](https://github.com/earlephilhower/arduino-littlefs-upload) plugin), you will need a version of Arduino IDE prior to version 2.x to be able to upload static files to the device.
+- If wiring up an ESP32, double check the I2C pins in use match what's set for `I2C_SDA_PIN`/`I2C_SCL_PIN` in `ESPMaster.ino` (default GPIO21/GPIO22).
 - User [@beroliv](https://github.com/beroliv) has reported having issues with WiFi connections. One solution they have proposed is soldering a wire to the antenna to be able to extend its range by creating an antenna. Here is the [link](https://www.stall.biz/project/verbesserte-wlan-konnektivitaet-mit-externen-antennen-fuer-wiffi-weatherman-und-andere-module-mit-esp8266/) (in German but Google Translate does a good job for other languages) they provided to detail the solution. Please take care when carrying out this solution. Thank you for the information [@beroliv](https://github.com/beroliv)!
