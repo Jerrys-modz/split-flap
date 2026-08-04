@@ -102,6 +102,7 @@ function loadPage() {
 		setCountdownDate((Date.now() / 1000) + (24 * 60 * 60));
 		showHideResetWifiSettingsAction(false);
 		showHideOtaUpdateAction(false);
+		setMqttStatus(false, false);
 		showScheduledMessages([
 			{
 				"scheduledDateTimeUnix": 1690134480,
@@ -131,7 +132,8 @@ function loadPage() {
 				setLastReceivedMessage(responseObject.lastTimeReceivedMessageDateTime);
 				showHideResetWifiSettingsAction(responseObject.wifiSettingsResettable);
 				showHideOtaUpdateAction(responseObject.otaEnabled);
-				
+				setMqttStatus(responseObject.mqttEnabled, responseObject.mqttConnected);
+
 				if (responseObject.scheduledMessages) {
 					showScheduledMessages(responseObject.scheduledMessages);
 				}
@@ -344,6 +346,12 @@ function showHideOtaUpdateAction(isOtaEnabled) {
 		var linkActionOtaUpdate = document.getElementById("linkActionOtaUpdate");
 		linkActionOtaUpdate.classList.add("hidden");
 	}
+}
+
+//Shows the current MQTT connectivity state on the UI, or that it isn't enabled at all
+function setMqttStatus(isMqttEnabled, isMqttConnected) {
+	var labelMqttStatus = document.getElementById("labelMqttStatus");
+	labelMqttStatus.innerHTML = !isMqttEnabled ? "Disabled" : (isMqttConnected ? "Connected" : "Disconnected");
 }
 
 //Formats and displays all scheduled messages in a "nice" format

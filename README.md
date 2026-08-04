@@ -47,6 +47,8 @@ This project has built on the original project to add extra features such as:
     - A checkbox on the UI is presented ("Show Indefinitely") that when checked, will show a message and leave it on the display
 - Arduino OTA
   - Over the Air updates to the display
+- MQTT Support
+  - Optionally control and monitor the display via a MQTT broker, handy for home automation integrations such as Home Assistant. See [MQTT](#mqtt) for details.
 - Updated `README.md` to add scenarios of problems encountered
 
 Also the code has been refactored to try facilitate easier development:
@@ -124,6 +126,7 @@ To upload the sketch to the ESP you need to install a few things to your arduino
   - [ezTime](https://github.com/ropg/ezTime) - Version: 0.8.3
   - [LinkedList](https://github.com/ivanseidel/LinkedList) - Version: 1.3.3
   - [WiFiManager](https://github.com/tzapu/WiFiManager) - Version: 2.0.17
+  - [PubSubClient](https://github.com/knolleary/pubsubclient) - Version: 2.8 (only required if you enable `MQTT_ENABLE`, see [MQTT](#mqtt) below)
 
 To upload sketches to the ESP8266 you can either use an [Arduino Uno](https://create.arduino.cc/projecthub/pratikdesai/how-to-program-esp8266-esp-01-module-with-arduino-uno-598166) or you can buy a dedicated programmer. It is highly recommend getting a programmer as it makes uploading programs onto the ESP8266 much faster.
 
@@ -178,6 +181,71 @@ There are several helper `define` variables to help during debugging/running:
   - Subsequently, you can set a password for OTA via the `otaPassword` variable
 - **UNIT_CALLS_DISABLE**
   - Use this to disable the communication with the Arduino Nano Units. This will mean you can check code over function for the ESP module.
+- **MQTT_ENABLE**
+  - Use this to enable MQTT support, see [MQTT](#mqtt) below for full details.
+
+#### MQTT
+
+The display can optionally be controlled and monitored via a MQTT broker, which is handy for integrating with home automation systems such as Home Assistant.
+
+To enable it, set `MQTT_ENABLE` to `true` and make sure the [PubSubClient](https://github.com/knolleary/pubsubclient) library is installed (see the library list above). You'll then want to update the following variables to match your broker:
+
+```c++
+//Address/hostname and port of your MQTT broker
+const char* mqttServer = "";
+const int mqttPort = 1883;
+
+//Leave blank if your broker doesn't require authentication
+const char* mqttUsername = "";
+const char* mqttPassword = "";
+
+//Base name used to build a unique MQTT client id, the device's chip id is appended automatically
+const char* mqttClientId = "SplitFlap";
+
+//Topic prefix used to build the availability/state/command topics e.g. splitflap/state, splitflap/set
+//Be mindful to choose something unique if you are running more than one display on the same broker
+const char* mqttTopicPrefix = "splitflap";
+
+//How often (in seconds) to publish the current state to MQTT as a "heartbeat", separate from publishing on every change
+const int mqttStatePublishIntervalSeconds = 30;
+```
+
+Once connected, the device publishes to (assuming the default `splitflap` topic prefix):
+
+- `splitflap/availability` - `online`/`offline` (retained, backed by a MQTT Last Will and Testament so it flips to `offline` automatically if the device drops off unexpectedly)
+- `splitflap/state` - a retained JSON payload describing the current state, published on connect, whenever something changes, and periodically as a "heartbeat" (`mqttStatePublishIntervalSeconds`):
+  ```json
+  {
+    "deviceMode": "text",
+    "alignment": "center",
+    "flapSpeed": "80",
+    "inputText": "HELLO WORLD",
+    "countdownToDateUnix": 0,
+    "lastTimeReceivedMessageDateTime": "04 Aug 26 12:00:00",
+    "version": "2.2.0"
+  }
+  ```
+
+The device subscribes to `splitflap/set` for commands, which accepts a JSON payload with the same fields the web UI form submits (all fields are optional, only send the ones you want to change):
+
+```json
+{
+  "deviceMode": "text",
+  "alignment": "center",
+  "flapSpeed": "80",
+  "inputText": "HELLO WORLD",
+  "countdownDateTimeUnix": 1735689600,
+  "scheduleEnabled": false,
+  "scheduledDateTimeUnix": 0,
+  "scheduleShowIndefinitely": false
+}
+```
+
+For example, to just update the displayed text while leaving everything else as-is, publish this to `splitflap/set`:
+
+```json
+{ "deviceMode": "text", "inputText": "HELLO WORLD" }
+```
 
 #### Experiments
 
