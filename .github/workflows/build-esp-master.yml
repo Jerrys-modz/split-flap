@@ -1,13 +1,14 @@
 name: 'Build ESP Master Sketch'
 
 on:
-  pull_request:    
+  pull_request:
     branches:
       - master
     paths:
       - 'ESPMaster/**'
   schedule:
     - cron: '0 12 1 * *'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
