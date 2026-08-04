@@ -30,6 +30,7 @@
 #define SERIAL_BAUDRATE     115200  //Serial debugging BAUD rate
 #define WIFI_USE_DIRECT     false   //Option to either direct connect to a WiFi Network or setup a AP to configure WiFi. Setting to false will setup as a AP.
 #define USE_MULTICAST       false    //Option to broadcast a ".local" URL on your local network default split-flap.local. You can change the name under configurable settings.
+#define MQTT_ENABLE         false   //Option to enable MQTT support so the display can be controlled/monitored via a MQTT broker (e.g. for Home Assistant). See "mqtt..." settings below to configure.
 
 /*
   EXPERIMENTAL: Try to use your Router when possible to set a Static IP address for your device to avoid conflicts with other devices
@@ -74,6 +75,12 @@
 //OTA Libary if we are into that kind of thing
 #if OTA_ENABLE == true
 #include <ArduinoOTA.h>
+#endif
+
+//MQTT Library if enabled. Packet size needs increasing over the library default to fit our state JSON payloads
+#if MQTT_ENABLE == true
+#define MQTT_MAX_PACKET_SIZE 512
+#include <PubSubClient.h>
 #endif
 
 #include <Arduino.h>
@@ -126,8 +133,28 @@ const char* clockFormat = "H:i"; //Examples: H:i -> 21:19, h:ia -> 09:19PM
 const int scheduledMessageDisplayTimeMillis = 7500;
 
 //Name to broadcast when USE_MULTICAST is enabled. Default is split-flap.local. Be mindful to choose something
-//unique to your local network. if running more than one display you'll need a unique name for each. 
+//unique to your local network. if running more than one display you'll need a unique name for each.
 const char* mdnsName = "split-flap";
+
+#if MQTT_ENABLE == true
+//Address/hostname and port of your MQTT broker
+const char* mqttServer = "";
+const int mqttPort = 1883;
+
+//Leave blank if your broker doesn't require authentication
+const char* mqttUsername = "";
+const char* mqttPassword = "";
+
+//Base name used to build a unique MQTT client id, the device's chip id is appended automatically
+const char* mqttClientId = "SplitFlap";
+
+//Topic prefix used to build the availability/state/command topics e.g. splitflap/state, splitflap/set
+//Be mindful to choose something unique if you are running more than one display on the same broker
+const char* mqttTopicPrefix = "splitflap";
+
+//How often (in seconds) to publish the current state to MQTT as a "heartbeat", separate from publishing on every change
+const int mqttStatePublishIntervalSeconds = 30;
+#endif
 
 #if WIFI_STATIC_IP == true
 //Static IP address for your device. Try take care to not conflict with something else on your network otherwise
@@ -219,6 +246,17 @@ bool isPendingWifiReset = false;
 bool isInOtaMode = false;
 #endif
 
+//Used for MQTT connectivity if enabled
+#if MQTT_ENABLE == true
+WiFiClient mqttWifiClient;
+PubSubClient mqttClient(mqttWifiClient);
+
+String mqttUniqueClientId;
+String mqttAvailabilityTopic;
+String mqttStateTopic;
+String mqttCommandTopic;
+#endif
+
 /* .-----------------------------------------------. */
 /* | ___          _          ___     _             | */
 /* ||   \ _____ _(_)__ ___  / __|___| |_ _  _ _ __ | */
@@ -276,6 +314,11 @@ void setup() {
 
 #if OTA_ENABLE == true
     SerialPrintln("OTA is enabled! Yay!");
+#endif
+
+#if MQTT_ENABLE == true
+    SerialPrintln("MQTT is enabled! Yay!");
+    initMqtt();
 #endif
 
 #if USE_MULTICAST == true
@@ -509,6 +552,11 @@ void setup() {
           }
         }
 
+#if MQTT_ENABLE == true
+        //Let MQTT subscribers know about the change straight away
+        publishMqttState();
+#endif
+
         //Redirect so that we don't have the "re-submit form" problem in browser for refresh
         request->redirect("/");
       }
@@ -706,6 +754,11 @@ void loop() {
   }
 #endif
 
+#if MQTT_ENABLE == true
+  //Keeps the MQTT connection alive, processes incoming messages and publishes periodic state updates
+  mqttLoop();
+#endif
+
   //ezTime library sync
   events(); 
   
@@ -764,7 +817,14 @@ String getCurrentSettingValues() {
 #else
   document["wifiSettingsResettable"] = false;
 #endif
-  
+
+#if MQTT_ENABLE == true
+  document["mqttEnabled"] = true;
+  document["mqttConnected"] = mqttClient.connected();
+#else
+  document["mqttEnabled"] = false;
+#endif
+
   String jsonString;
   serializeJson(document, jsonString);
 

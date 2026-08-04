@@ -77,6 +77,11 @@ void checkScheduledMessages() {
 
       scheduledMessages.remove(scheduledMessageIndex);
       writeScheduledMessagesToFile();
+
+#if MQTT_ENABLE == true
+      publishMqttState();
+#endif
+
       break;
     }
   }

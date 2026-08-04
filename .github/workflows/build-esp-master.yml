@@ -46,6 +46,8 @@ jobs:
               version: 1.3.3
             - name: WiFiManager
               version: 2.0.17
+            - name: PubSubClient
+              version: 2.8
           cli-compile-flags: |
             - --warnings
             - "none"
