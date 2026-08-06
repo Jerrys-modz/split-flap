@@ -80,7 +80,12 @@
 							<input onchange="setDeviceModeTab(this.value)" type="radio" id="modeText" name="deviceMode" value="text" />
 							<label for="modeText">Text Mode</label>
 						</p>
-						
+
+						<p id="containerModeMqtt">
+							<input onchange="setDeviceModeTab(this.value)" type="radio" id="modeMqtt" name="deviceMode" value="mqtt" />
+							<label for="modeMqtt">MQTT Mode</label>
+						</p>
+
 						<div id="tab-text" class="tab">
 							<p>
 								<label for="inputText"></label>
@@ -110,6 +115,14 @@
 									</p>
 								</div>
 							</p>				
+						</div>
+
+						<div id="tab-mqtt" class="tab hidden">
+							<p>
+								This mode is controlled externally over MQTT. Publish a JSON command to your configured MQTT command
+								topic (e.g. <code>splitflap/set</code>) with <code>"deviceMode": "mqtt"</code> and an
+								<code>"inputText"</code> field to update what's shown, without needing to submit this form.
+							</p>
 						</div>
 
 						<div id="tab-countdown" class="tab hidden">

@@ -179,7 +179,7 @@ void applyMqttCommand(JsonDocument &commandDocument) {
     if (commandDocument["deviceMode"].is<const char*>()) {
       String newDeviceModeValue = commandDocument["deviceMode"].as<String>();
 
-      if (newDeviceModeValue == DEVICE_MODE_TEXT || newDeviceModeValue == DEVICE_MODE_CLOCK || newDeviceModeValue == DEVICE_MODE_DATE || newDeviceModeValue == DEVICE_MODE_COUNTDOWN) {
+      if (newDeviceModeValue == DEVICE_MODE_TEXT || newDeviceModeValue == DEVICE_MODE_CLOCK || newDeviceModeValue == DEVICE_MODE_DATE || newDeviceModeValue == DEVICE_MODE_COUNTDOWN || newDeviceModeValue == DEVICE_MODE_MQTT) {
         if (deviceMode != newDeviceModeValue) {
           deviceMode = newDeviceModeValue;
 
@@ -192,8 +192,14 @@ void applyMqttCommand(JsonDocument &commandDocument) {
       }
     }
 
+    //Text mode text comes from the web UI form, MQTT mode text comes from here. Once in MQTT mode,
+    //text can keep being pushed with just {"inputText": "..."} without having to re-specify deviceMode each time
     if (deviceMode == DEVICE_MODE_TEXT && commandDocument["inputText"].is<const char*>()) {
       inputText = commandDocument["inputText"].as<String>();
+    }
+    else if (deviceMode == DEVICE_MODE_MQTT && commandDocument["inputText"].is<const char*>()) {
+      mqttInputText = commandDocument["inputText"].as<String>();
+      SerialPrintln("MQTT Mode Text Updated: " + mqttInputText);
     }
   }
 

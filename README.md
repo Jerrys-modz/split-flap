@@ -247,6 +247,22 @@ For example, to just update the displayed text while leaving everything else as-
 { "deviceMode": "text", "inputText": "HELLO WORLD" }
 ```
 
+##### MQTT Mode
+
+Alongside `text`/`clock`/`date`/`countdown`, enabling `MQTT_ENABLE` adds a fifth `mqtt` device mode (selectable from the web UI too, as "MQTT Mode"). It behaves like `text` mode, except its text is only ever set via the `inputText` field of a MQTT command - handy for pushing updates (e.g. notifications from another system) without touching the web UI or persisting anything to the `text` mode's saved message.
+
+Switch to it and set the initial text in one command:
+
+```json
+{ "deviceMode": "mqtt", "inputText": "HELLO WORLD" }
+```
+
+Once the device is in `mqtt` mode, you can keep updating what's shown with just:
+
+```json
+{ "inputText": "SOMETHING NEW" }
+```
+
 #### Experiments
 
 In the main Sketch under "Configurable Defines", an "EXPERIMENTAL" section has been included. This section has been created for features that are things that can be changed and trialled however aren't going to be necessary to be changed for general use.
