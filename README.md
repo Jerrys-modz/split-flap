@@ -220,11 +220,13 @@ Once connected, the device publishes to (assuming the default `splitflap` topic 
     "alignment": "center",
     "flapSpeed": "80",
     "inputText": "HELLO WORLD",
+    "mqttInputText": "",
     "countdownToDateUnix": 0,
     "lastTimeReceivedMessageDateTime": "04 Aug 26 12:00:00",
     "version": "2.2.0"
   }
   ```
+  (`inputText` is whatever is actually currently displayed regardless of mode, while `mqttInputText` is specifically the text last pushed for [MQTT Mode](#mqtt-mode))
 
 The device subscribes to `splitflap/set` for commands, which accepts a JSON payload with the same fields the web UI form submits (all fields are optional, only send the ones you want to change):
 
@@ -262,6 +264,30 @@ Once the device is in `mqtt` mode, you can keep updating what's shown with just:
 ```json
 { "inputText": "SOMETHING NEW" }
 ```
+
+##### Home Assistant Auto Discovery
+
+If you're running [Home Assistant](https://www.home-assistant.io/) with its MQTT integration, the device publishes [MQTT Discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery) configs on every connect so it shows up automatically as one device, no YAML required:
+
+- A **Mode** select (`text`/`clock`/`date`/`countdown`/`mqtt`)
+- An **Alignment** select (`left`/`center`/`right`)
+- A **Flap Speed** number (1-100)
+- An **MQTT Text** text box - entering a value switches the device to `mqtt` mode and shows it, same as publishing `{"deviceMode": "mqtt", "inputText": "..."}` yourself
+- A **Last Message** sensor showing whatever is currently on the display, regardless of mode
+
+This is controlled by two settings:
+
+```c++
+//Publishes Home Assistant MQTT Discovery configs so Mode/Alignment/Flap Speed/MQTT Text entities and a
+//Last Message sensor appear automatically under a single device in Home Assistant. Leave the prefix as the
+//default unless you've changed "discovery_prefix" in your Home Assistant MQTT integration settings
+const bool mqttHomeAssistantDiscoveryEnabled = true;
+const char* mqttHomeAssistantDiscoveryPrefix = "homeassistant";
+```
+
+The device also subscribes to Home Assistant's birth message (`homeassistant/status`) and re-publishes discovery configs and state whenever it sees `online`, so entities reappear automatically if Home Assistant restarts after the display has already connected.
+
+Set `mqttHomeAssistantDiscoveryEnabled` to `false` if you don't use Home Assistant, or want to integrate with the [state](#mqtt)/[command](#mqtt) topics directly instead.
 
 #### Experiments
 

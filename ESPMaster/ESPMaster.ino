@@ -77,9 +77,10 @@
 #include <ArduinoOTA.h>
 #endif
 
-//MQTT Library if enabled. Packet size needs increasing over the library default to fit our state JSON payloads
+//MQTT Library if enabled. Packet size needs increasing over the library default to fit our state JSON
+//payloads and, in particular, the larger Home Assistant discovery config payloads
 #if MQTT_ENABLE == true
-#define MQTT_MAX_PACKET_SIZE 512
+#define MQTT_MAX_PACKET_SIZE 1024
 #include <PubSubClient.h>
 #endif
 
@@ -154,6 +155,12 @@ const char* mqttTopicPrefix = "splitflap";
 
 //How often (in seconds) to publish the current state to MQTT as a "heartbeat", separate from publishing on every change
 const int mqttStatePublishIntervalSeconds = 30;
+
+//Publishes Home Assistant MQTT Discovery configs so Mode/Alignment/Flap Speed/MQTT Text entities and a
+//Last Message sensor appear automatically under a single device in Home Assistant. Leave the prefix as the
+//default unless you've changed "discovery_prefix" in your Home Assistant MQTT integration settings
+const bool mqttHomeAssistantDiscoveryEnabled = true;
+const char* mqttHomeAssistantDiscoveryPrefix = "homeassistant";
 #endif
 
 #if WIFI_STATIC_IP == true
@@ -259,6 +266,10 @@ String mqttUniqueClientId;
 String mqttAvailabilityTopic;
 String mqttStateTopic;
 String mqttCommandTopic;
+
+//Home Assistant publishes "online" here (its MQTT birth message) whenever it (re)starts, which is our cue
+//to re-publish discovery configs/state so entities reappear without waiting for our own reconnect
+String mqttHomeAssistantStatusTopic;
 
 //The text currently being shown while in DEVICE_MODE_MQTT, set via the MQTT command topic
 String mqttInputText = "";
