@@ -99,6 +99,22 @@ void publishMqttState() {
   document["lastTimeReceivedMessageDateTime"] = lastReceivedMessageDateTime;
   document["version"] = espVersion;
 
+  //Diagnostics
+  document["wifiRssi"] = WiFi.RSSI();
+  document["freeHeap"] = ESP.getFreeHeap();
+  document["uptimeSeconds"] = millis() / 1000;
+
+  //Reflects whatever was last observed during a real write, not a fresh I2C poll, so as to not add extra
+  //bus traffic/contention just for a diagnostic read
+  bool anyUnitMoving = false;
+  for (int unitIndex = 0; unitIndex < UNITS_AMOUNT; unitIndex++) {
+    if (displayState[unitIndex] != 0) {
+      anyUnitMoving = true;
+      break;
+    }
+  }
+  document["displayMoving"] = anyUnitMoving;
+
   String jsonString;
   serializeJson(document, jsonString);
 
@@ -141,10 +157,43 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 }
 
 //Applies a command JSON document received over MQTT, mirroring what the web UI form submission does.
-//Supported fields (all optional): alignment, flapSpeed, deviceMode, inputText, countdownDateTimeUnix,
+//Supported fields (all optional): action, alignment, flapSpeed, deviceMode, inputText, countdownDateTimeUnix,
 //scheduleEnabled, scheduledDateTimeUnix, scheduleShowIndefinitely
 void applyMqttCommand(JsonDocument &commandDocument) {
   lastReceivedMessageDateTime = timezone.dateTime("d M y H:i:s");
+
+  //One-shot action triggers (mirroring the web UI's Actions card), same as pressing a button - not
+  //combined with any of the state fields below, so handle and bail out early
+  if (commandDocument["action"].is<const char*>()) {
+    String action = commandDocument["action"].as<String>();
+
+    if (action == MQTT_ACTION_REBOOT) {
+      SerialPrintln("MQTT Action: Reboot requested");
+      isPendingReboot = true;
+    }
+    else if (action == MQTT_ACTION_RESET_UNITS) {
+      SerialPrintln("MQTT Action: Reset Units requested");
+      isPendingUnitsReset = true;
+    }
+#if WIFI_USE_DIRECT == false
+    else if (action == MQTT_ACTION_RESET_WIFI) {
+      SerialPrintln("MQTT Action: Reset WiFi requested");
+      isPendingWifiReset = true;
+    }
+#endif
+#if OTA_ENABLE == true
+    else if (action == MQTT_ACTION_OTA) {
+      SerialPrintln("MQTT Action: OTA Mode requested");
+      enterOtaMode();
+    }
+#endif
+    else {
+      SerialPrintln("MQTT Action provided was not valid. Value: " + action);
+    }
+
+    publishMqttState();
+    return;
+  }
 
   if (commandDocument["alignment"].is<const char*>()) {
     String newAlignmentValue = commandDocument["alignment"].as<String>();
@@ -341,6 +390,133 @@ void publishHomeAssistantDiscovery() {
 
     publishHomeAssistantDiscoveryConfig("sensor", "last_message", document);
   }
+
+  //Countdown target date. The entered date is treated as UTC (Home Assistant's as_timestamp()/
+  //timestamp_custom() default local-time behaviour is worked around below) - if that ends up a day off
+  //against your timezone, adjust to taste
+  {
+    JsonDocument document;
+    document["name"] = "Countdown Date";
+    document["unique_id"] = mqttUniqueClientId + "_countdown_date";
+    document["command_topic"] = mqttCommandTopic;
+    document["command_template"] = "{\"countdownDateTimeUnix\": {{ as_timestamp(value) | int }}}";
+    document["state_topic"] = mqttStateTopic;
+    document["value_template"] = "{{ (value_json.countdownToDateUnix | int | timestamp_custom('%Y-%m-%d', False)) if (value_json.countdownToDateUnix | int) > 0 else None }}";
+
+    publishHomeAssistantDiscoveryConfig("date", "countdown_date", document);
+  }
+
+  //WiFi signal strength
+  {
+    JsonDocument document;
+    document["name"] = "WiFi Signal";
+    document["unique_id"] = mqttUniqueClientId + "_wifi_rssi";
+    document["state_topic"] = mqttStateTopic;
+    document["value_template"] = "{{ value_json.wifiRssi }}";
+    document["device_class"] = "signal_strength";
+    document["state_class"] = "measurement";
+    document["unit_of_measurement"] = "dBm";
+    document["entity_category"] = "diagnostic";
+
+    publishHomeAssistantDiscoveryConfig("sensor", "wifi_rssi", document);
+  }
+
+  //Free heap - handy for spotting a slow memory leak on a device that otherwise runs for months at a time
+  {
+    JsonDocument document;
+    document["name"] = "Free Heap";
+    document["unique_id"] = mqttUniqueClientId + "_free_heap";
+    document["state_topic"] = mqttStateTopic;
+    document["value_template"] = "{{ value_json.freeHeap }}";
+    document["state_class"] = "measurement";
+    document["unit_of_measurement"] = "B";
+    document["entity_category"] = "diagnostic";
+    document["icon"] = "mdi:memory";
+
+    publishHomeAssistantDiscoveryConfig("sensor", "free_heap", document);
+  }
+
+  //Uptime - resets to 0 both on an actual reboot and, since it's derived from millis(), roughly every 49.7
+  //days if the device runs that long without one
+  {
+    JsonDocument document;
+    document["name"] = "Uptime";
+    document["unique_id"] = mqttUniqueClientId + "_uptime";
+    document["state_topic"] = mqttStateTopic;
+    document["value_template"] = "{{ value_json.uptimeSeconds }}";
+    document["device_class"] = "duration";
+    document["unit_of_measurement"] = "s";
+    document["entity_category"] = "diagnostic";
+
+    publishHomeAssistantDiscoveryConfig("sensor", "uptime", document);
+  }
+
+  //Display moving - reflects the last observed state from a real write rather than polling fresh, see
+  //publishMqttState()
+  {
+    JsonDocument document;
+    document["name"] = "Display Moving";
+    document["unique_id"] = mqttUniqueClientId + "_display_moving";
+    document["state_topic"] = mqttStateTopic;
+    document["value_template"] = "{{ 'ON' if value_json.displayMoving else 'OFF' }}";
+    document["entity_category"] = "diagnostic";
+    document["icon"] = "mdi:rotate-3d-variant";
+
+    publishHomeAssistantDiscoveryConfig("binary_sensor", "display_moving", document);
+  }
+
+  //Action buttons, mirroring the web UI's "Actions" card
+  {
+    JsonDocument document;
+    document["name"] = "Reboot";
+    document["unique_id"] = mqttUniqueClientId + "_reboot";
+    document["command_topic"] = mqttCommandTopic;
+    document["payload_press"] = "{\"action\": \"reboot\"}";
+    document["device_class"] = "restart";
+    document["entity_category"] = "config";
+
+    publishHomeAssistantDiscoveryConfig("button", "reboot", document);
+  }
+
+  {
+    JsonDocument document;
+    document["name"] = "Reset Unit Calibration";
+    document["unique_id"] = mqttUniqueClientId + "_reset_units";
+    document["command_topic"] = mqttCommandTopic;
+    document["payload_press"] = "{\"action\": \"resetUnits\"}";
+    document["entity_category"] = "config";
+    document["icon"] = "mdi:restart-alert";
+
+    publishHomeAssistantDiscoveryConfig("button", "reset_units", document);
+  }
+
+#if WIFI_USE_DIRECT == false
+  {
+    JsonDocument document;
+    document["name"] = "Reset WiFi";
+    document["unique_id"] = mqttUniqueClientId + "_reset_wifi";
+    document["command_topic"] = mqttCommandTopic;
+    document["payload_press"] = "{\"action\": \"resetWifi\"}";
+    document["entity_category"] = "config";
+    document["icon"] = "mdi:wifi-off";
+
+    publishHomeAssistantDiscoveryConfig("button", "reset_wifi", document);
+  }
+#endif
+
+#if OTA_ENABLE == true
+  {
+    JsonDocument document;
+    document["name"] = "OTA Mode";
+    document["unique_id"] = mqttUniqueClientId + "_ota";
+    document["command_topic"] = mqttCommandTopic;
+    document["payload_press"] = "{\"action\": \"ota\"}";
+    document["entity_category"] = "config";
+    document["icon"] = "mdi:upload";
+
+    publishHomeAssistantDiscoveryConfig("button", "ota", document);
+  }
+#endif
 }
 
 #endif

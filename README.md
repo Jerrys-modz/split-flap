@@ -223,10 +223,14 @@ Once connected, the device publishes to (assuming the default `splitflap` topic 
     "mqttInputText": "",
     "countdownToDateUnix": 0,
     "lastTimeReceivedMessageDateTime": "04 Aug 26 12:00:00",
-    "version": "2.2.0"
+    "version": "2.2.0",
+    "wifiRssi": -58,
+    "freeHeap": 34216,
+    "uptimeSeconds": 12345,
+    "displayMoving": false
   }
   ```
-  (`inputText` is whatever is actually currently displayed regardless of mode, while `mqttInputText` is specifically the text last pushed for [MQTT Mode](#mqtt-mode))
+  (`inputText` is whatever is actually currently displayed regardless of mode, while `mqttInputText` is specifically the text last pushed for [MQTT Mode](#mqtt-mode). `wifiRssi`/`freeHeap`/`uptimeSeconds`/`displayMoving` are diagnostics - `displayMoving` reflects whatever was last observed during a real write rather than a fresh check, so as to not add extra I2C bus traffic just for a status read)
 
 The device subscribes to `splitflap/set` for commands, which accepts a JSON payload with the same fields the web UI form submits (all fields are optional, only send the ones you want to change):
 
@@ -248,6 +252,21 @@ For example, to just update the displayed text while leaving everything else as-
 ```json
 { "deviceMode": "text", "inputText": "HELLO WORLD" }
 ```
+
+##### MQTT Actions
+
+The command topic also accepts a one-shot `action` field, mirroring the web UI's "Actions" card. It's exclusive of the other fields - nothing else in the same payload is processed alongside it:
+
+```json
+{ "action": "reboot" }
+```
+
+Supported values:
+
+- `reboot`
+- `resetUnits` - re-runs the unit calibration, same as "Reset Unit Calibration"
+- `resetWifi` - only available when `WIFI_USE_DIRECT` is `false`, same as "Reset WiFi"
+- `ota` - only available when `OTA_ENABLE` is `true`, puts the device into OTA update mode, same as "OTA Update"
 
 ##### MQTT Mode
 
@@ -273,14 +292,17 @@ If you're running [Home Assistant](https://www.home-assistant.io/) with its MQTT
 - An **Alignment** select (`left`/`center`/`right`)
 - A **Flap Speed** number (1-100)
 - An **MQTT Text** text box - entering a value switches the device to `mqtt` mode and shows it, same as publishing `{"deviceMode": "mqtt", "inputText": "..."}` yourself
+- A **Countdown Date** date picker for the countdown target date (treated as UTC - see the code comment above `publishHomeAssistantDiscovery()` if it ends up a day off against your timezone)
 - A **Last Message** sensor showing whatever is currently on the display, regardless of mode
+- Diagnostic sensors: **WiFi Signal** (RSSI), **Free Heap**, **Uptime**, and a **Display Moving** binary sensor
+- Action buttons under the device's "Configuration" section: **Reboot**, **Reset Unit Calibration**, **Reset WiFi** (if `WIFI_USE_DIRECT` is `false`), and **OTA Mode** (if `OTA_ENABLE` is `true`)
 
 This is controlled by two settings:
 
 ```c++
-//Publishes Home Assistant MQTT Discovery configs so Mode/Alignment/Flap Speed/MQTT Text entities and a
-//Last Message sensor appear automatically under a single device in Home Assistant. Leave the prefix as the
-//default unless you've changed "discovery_prefix" in your Home Assistant MQTT integration settings
+//Publishes Home Assistant MQTT Discovery configs so entities (controls, sensors, action buttons) appear
+//automatically under a single device in Home Assistant. Leave the prefix as the default unless you've
+//changed "discovery_prefix" in your Home Assistant MQTT integration settings
 const bool mqttHomeAssistantDiscoveryEnabled = true;
 const char* mqttHomeAssistantDiscoveryPrefix = "homeassistant";
 ```
