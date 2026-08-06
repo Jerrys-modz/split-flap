@@ -156,9 +156,9 @@ const char* mqttTopicPrefix = "splitflap";
 //How often (in seconds) to publish the current state to MQTT as a "heartbeat", separate from publishing on every change
 const int mqttStatePublishIntervalSeconds = 30;
 
-//Publishes Home Assistant MQTT Discovery configs so Mode/Alignment/Flap Speed/MQTT Text entities and a
-//Last Message sensor appear automatically under a single device in Home Assistant. Leave the prefix as the
-//default unless you've changed "discovery_prefix" in your Home Assistant MQTT integration settings
+//Publishes Home Assistant MQTT Discovery configs so entities (controls, sensors, action buttons) appear
+//automatically under a single device in Home Assistant. Leave the prefix as the default unless you've
+//changed "discovery_prefix" in your Home Assistant MQTT integration settings
 const bool mqttHomeAssistantDiscoveryEnabled = true;
 const char* mqttHomeAssistantDiscoveryPrefix = "homeassistant";
 #endif
@@ -214,6 +214,19 @@ const char* DEVICE_MODE_COUNTDOWN = "countdown";
 #if MQTT_ENABLE == true
 //A mode dedicated to text pushed via the MQTT command topic, see ServiceMqttFunctions.ino
 const char* DEVICE_MODE_MQTT = "mqtt";
+#endif
+
+#if MQTT_ENABLE == true
+//One-shot "action" values accepted by the MQTT command topic, mirroring the web UI's Actions card.
+//See applyMqttCommand() in ServiceMqttFunctions.ino
+const char* MQTT_ACTION_REBOOT = "reboot";
+const char* MQTT_ACTION_RESET_UNITS = "resetUnits";
+#if WIFI_USE_DIRECT == false
+const char* MQTT_ACTION_RESET_WIFI = "resetWifi";
+#endif
+#if OTA_ENABLE == true
+const char* MQTT_ACTION_OTA = "ota";
+#endif
 #endif
 
 //Alignment options
@@ -273,6 +286,71 @@ String mqttHomeAssistantStatusTopic;
 
 //The text currently being shown while in DEVICE_MODE_MQTT, set via the MQTT command topic
 String mqttInputText = "";
+#endif
+
+#if OTA_ENABLE == true
+//Puts the device into OTA update mode, ready to accept a sketch upload over WiFi. Safe to call more than
+//once, only does the actual setup the first time
+void enterOtaMode() {
+  if (isInOtaMode) {
+    SerialPrintln("Already in OTA Mode");
+    return;
+  }
+
+  SerialPrintln("Setting OTA Hostname");
+  ArduinoOTA.setHostname("Split-Flap-OTA");
+
+  //If there is a password set, disabled by default for ease
+  if (otaPassword != "") {
+    ArduinoOTA.setPassword(otaPassword);
+  }
+
+  SerialPrintln("Starting OTA Mode");
+  ArduinoOTA.begin();
+  delay(100);
+
+  ArduinoOTA.onStart([]() {
+    LittleFS.end();
+    if (ArduinoOTA.getCommand() == U_FLASH) {
+      SerialPrintln("Start updating sketch");
+    }
+    else {
+      SerialPrintln("Start updating filesystem");
+    }
+  });
+
+  ArduinoOTA.onEnd([]() {
+    SerialPrintln("Finished OTA Update - Rebooting");
+    isPendingReboot = true;
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    SerialPrintf("OTA Progress: %u%%\r", (progress / (total / 100)));
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+    SerialPrintf("Error[%u]: ", error);
+
+    if (error == OTA_AUTH_ERROR) {
+      SerialPrintln("Finished OTA Update - Rebooting");
+    }
+    else if (error == OTA_BEGIN_ERROR) {
+      SerialPrintln("OTA Begin Failed");
+    }
+    else if (error == OTA_CONNECT_ERROR) {
+      SerialPrintln("OTA Connect Failed");
+    }
+    else if (error == OTA_RECEIVE_ERROR) {
+      SerialPrintln("OTA Receive Failed");
+    }
+    else if (error == OTA_END_ERROR) {
+      SerialPrintln("OTA End Failed");
+    }
+  });
+
+  //Put in OTA Mode
+  isInOtaMode = true;
+}
 #endif
 
 /* .-----------------------------------------------. */
@@ -603,65 +681,8 @@ void setup() {
       html += "</div>";
 
       request->send(200, "text/html", html);
-  
-      if (!isInOtaMode) {
-        SerialPrintln("Setting OTA Hostname");
-        ArduinoOTA.setHostname("Split-Flap-OTA");
 
-        //If there is a password set, disabled by default for ease
-        if (otaPassword != "") {
-          ArduinoOTA.setPassword(otaPassword);
-        }
-        
-        SerialPrintln("Starting OTA Mode");
-        ArduinoOTA.begin();
-        delay(100);
-      
-        ArduinoOTA.onStart([]() {
-          LittleFS.end();
-          if (ArduinoOTA.getCommand() == U_FLASH) {
-            SerialPrintln("Start updating sketch");
-          } 
-          else {
-            SerialPrintln("Start updating filesystem");
-          }  
-        });
-        
-        ArduinoOTA.onEnd([]() {
-          SerialPrintln("Finished OTA Update - Rebooting");
-          isPendingReboot = true;
-        });
-        
-        ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-          SerialPrintf("OTA Progress: %u%%\r", (progress / (total / 100)));
-        });
-        
-        ArduinoOTA.onError([](ota_error_t error) {
-          SerialPrintf("Error[%u]: ", error);
-
-          if (error == OTA_AUTH_ERROR) {
-            SerialPrintln("Finished OTA Update - Rebooting");
-          }
-          else if (error == OTA_BEGIN_ERROR) {
-            SerialPrintln("OTA Begin Failed");
-          }
-          else if (error == OTA_CONNECT_ERROR) {
-            SerialPrintln("OTA Connect Failed");
-          }
-          else if (error == OTA_RECEIVE_ERROR) {
-            SerialPrintln("OTA Receive Failed");
-          }
-          else if (error == OTA_END_ERROR) {
-            SerialPrintln("OTA End Failed");
-          }
-        });
-        
-        //Put in OTA Mode
-        isInOtaMode = true;
-      }
-      else {
-        SerialPrintln("Already in OTA Mode");
-      }
+      enterOtaMode();
     });
 #endif
 
