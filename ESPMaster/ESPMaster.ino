@@ -204,6 +204,10 @@ const char* DEVICE_MODE_TEXT = "text";
 const char* DEVICE_MODE_CLOCK = "clock";
 const char* DEVICE_MODE_DATE = "date";
 const char* DEVICE_MODE_COUNTDOWN = "countdown";
+#if MQTT_ENABLE == true
+//A mode dedicated to text pushed via the MQTT command topic, see ServiceMqttFunctions.ino
+const char* DEVICE_MODE_MQTT = "mqtt";
+#endif
 
 //Alignment options
 const char* ALIGNMENT_MODE_LEFT = "left";
@@ -255,6 +259,9 @@ String mqttUniqueClientId;
 String mqttAvailabilityTopic;
 String mqttStateTopic;
 String mqttCommandTopic;
+
+//The text currently being shown while in DEVICE_MODE_MQTT, set via the MQTT command topic
+String mqttInputText = "";
 #endif
 
 /* .-----------------------------------------------. */
@@ -435,8 +442,12 @@ void setup() {
           //HTTP POST device mode value
           if (p->name() == PARAM_DEVICEMODE) {
             String receivedValue = p->value();
-            if (receivedValue == DEVICE_MODE_TEXT || receivedValue == DEVICE_MODE_CLOCK || receivedValue == DEVICE_MODE_DATE || receivedValue == DEVICE_MODE_COUNTDOWN) {
-              newDeviceModeValue = receivedValue;          
+            if (receivedValue == DEVICE_MODE_TEXT || receivedValue == DEVICE_MODE_CLOCK || receivedValue == DEVICE_MODE_DATE || receivedValue == DEVICE_MODE_COUNTDOWN
+#if MQTT_ENABLE == true
+                || receivedValue == DEVICE_MODE_MQTT
+#endif
+            ) {
+              newDeviceModeValue = receivedValue;
             }
             else {
               SerialPrintln("Device Mode provided was not valid. Invalid Value: " + receivedValue); 
@@ -779,7 +790,12 @@ void loop() {
     } 
     else if (deviceMode == DEVICE_MODE_CLOCK) {
       showText(timezone.dateTime(clockFormat));
-    } 
+    }
+#if MQTT_ENABLE == true
+    else if (deviceMode == DEVICE_MODE_MQTT) {
+      showText(mqttInputText);
+    }
+#endif
   }
 }
 

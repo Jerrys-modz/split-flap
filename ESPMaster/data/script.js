@@ -103,6 +103,7 @@ function loadPage() {
 		showHideResetWifiSettingsAction(false);
 		showHideOtaUpdateAction(false);
 		setMqttStatus(false, false);
+		showHideMqttModeOption(false);
 		showScheduledMessages([
 			{
 				"scheduledDateTimeUnix": 1690134480,
@@ -133,6 +134,7 @@ function loadPage() {
 				showHideResetWifiSettingsAction(responseObject.wifiSettingsResettable);
 				showHideOtaUpdateAction(responseObject.otaEnabled);
 				setMqttStatus(responseObject.mqttEnabled, responseObject.mqttConnected);
+				showHideMqttModeOption(responseObject.mqttEnabled);
 
 				if (responseObject.scheduledMessages) {
 					showScheduledMessages(responseObject.scheduledMessages);
@@ -221,6 +223,9 @@ function setSavedMode(mode) {
 			break;
 		case "countdown":
 			document.getElementById("modeCountdown").checked = true;
+			break;
+		case "mqtt":
+			document.getElementById("modeMqtt").checked = true;
 			break;
 	}
 
@@ -352,6 +357,14 @@ function showHideOtaUpdateAction(isOtaEnabled) {
 function setMqttStatus(isMqttEnabled, isMqttConnected) {
 	var labelMqttStatus = document.getElementById("labelMqttStatus");
 	labelMqttStatus.innerHTML = !isMqttEnabled ? "Disabled" : (isMqttConnected ? "Connected" : "Disconnected");
+}
+
+//Only makes sense to offer selecting MQTT Mode if MQTT is actually enabled on the device
+function showHideMqttModeOption(isMqttEnabled) {
+	if (!isMqttEnabled) {
+		var containerModeMqtt = document.getElementById("containerModeMqtt");
+		containerModeMqtt.classList.add("hidden");
+	}
 }
 
 //Formats and displays all scheduled messages in a "nice" format
