@@ -11,12 +11,15 @@ void initMqtt() {
   mqttAvailabilityTopic = String(mqttTopicPrefix) + "/availability";
   mqttStateTopic = String(mqttTopicPrefix) + "/state";
   mqttCommandTopic = String(mqttTopicPrefix) + "/set";
+  mqttHomeAssistantStatusTopic = String(mqttHomeAssistantDiscoveryPrefix) + "/status";
 
   SerialPrintln("Initialising MQTT");
   SerialPrintln("-- Client Id: " + mqttUniqueClientId);
   SerialPrintln("-- Broker: " + String(mqttServer) + ":" + String(mqttPort));
   SerialPrintln("-- Command Topic: " + mqttCommandTopic);
   SerialPrintln("-- State Topic: " + mqttStateTopic);
+  SerialPrint("-- Home Assistant Discovery: ");
+  SerialPrintln(mqttHomeAssistantDiscoveryEnabled ? "Enabled" : "Disabled");
 
   mqttClient.setServer(mqttServer, mqttPort);
   mqttClient.setCallback(mqttCallback);
@@ -65,6 +68,13 @@ void mqttReconnect() {
     mqttClient.publish(mqttAvailabilityTopic.c_str(), "online", true);
     mqttClient.subscribe(mqttCommandTopic.c_str());
 
+    if (mqttHomeAssistantDiscoveryEnabled) {
+      //Also listen for Home Assistant's MQTT birth message, so we can re-publish discovery/state if it
+      //(re)starts after us rather than waiting on it to notice us via our next reconnect
+      mqttClient.subscribe(mqttHomeAssistantStatusTopic.c_str());
+      publishHomeAssistantDiscovery();
+    }
+
     publishMqttState();
   }
   else {
@@ -84,6 +94,7 @@ void publishMqttState() {
   document["alignment"] = alignment;
   document["flapSpeed"] = flapSpeed;
   document["inputText"] = lastWrittenText;
+  document["mqttInputText"] = mqttInputText;
   document["countdownToDateUnix"] = atol(countdownToDateUnix.c_str());
   document["lastTimeReceivedMessageDateTime"] = lastReceivedMessageDateTime;
   document["version"] = espVersion;
@@ -106,6 +117,17 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
 
   SerialPrintln("MQTT Payload: " + payloadString);
+
+  //Home Assistant's birth message, not one of our own JSON commands - re-announce ourselves
+  if (mqttHomeAssistantDiscoveryEnabled && String(topic) == mqttHomeAssistantStatusTopic) {
+    if (payloadString == "online") {
+      SerialPrintln("Home Assistant came online, re-publishing discovery configs and state");
+      publishHomeAssistantDiscovery();
+      publishMqttState();
+    }
+
+    return;
+  }
 
   JsonDocument commandDocument;
   DeserializationError deserialisationError = deserializeJson(commandDocument, payloadString);
@@ -204,6 +226,121 @@ void applyMqttCommand(JsonDocument &commandDocument) {
   }
 
   publishMqttState();
+}
+
+//Builds the "<discoveryPrefix>/<component>/<nodeId>/<objectId>/config" topic for a Home Assistant
+//MQTT Discovery entity
+String buildHomeAssistantDiscoveryTopic(const char* component, const char* objectId) {
+  return String(mqttHomeAssistantDiscoveryPrefix) + "/" + component + "/" + mqttUniqueClientId + "/" + objectId + "/config";
+}
+
+//Adds the device/availability fields shared by every Home Assistant discovery entity (so they all group
+//under one device and share our existing availability topic), then serializes and publishes the finished
+//config, retained, to its discovery topic
+void publishHomeAssistantDiscoveryConfig(const char* component, const char* objectId, JsonDocument &document) {
+  document["availability_topic"] = mqttAvailabilityTopic;
+  document["payload_available"] = "online";
+  document["payload_not_available"] = "offline";
+
+  document["device"]["identifiers"][0] = mqttUniqueClientId;
+  document["device"]["name"] = mqttClientId;
+  document["device"]["manufacturer"] = "Split-Flap";
+  document["device"]["model"] = "ESP8266 Split-Flap Display";
+  document["device"]["sw_version"] = espVersion;
+
+  String topic = buildHomeAssistantDiscoveryTopic(component, objectId);
+  String payload;
+  serializeJson(document, payload);
+
+  mqttClient.publish(topic.c_str(), payload.c_str(), true);
+}
+
+//Publishes Home Assistant MQTT Discovery configs for our entities - Mode/Alignment selects, a Flap Speed
+//number, a MQTT Text text box, and a Last Message sensor - all grouped under one Home Assistant device.
+//Called on every (re)connect and whenever Home Assistant announces itself via its birth message
+void publishHomeAssistantDiscovery() {
+  SerialPrintln("Publishing Home Assistant MQTT Discovery configs");
+
+  //Device mode select - lets Home Assistant switch between text/clock/date/countdown/mqtt
+  {
+    JsonDocument document;
+    document["name"] = "Mode";
+    document["unique_id"] = mqttUniqueClientId + "_mode";
+    document["command_topic"] = mqttCommandTopic;
+    document["command_template"] = "{\"deviceMode\": \"{{ value }}\"}";
+    document["state_topic"] = mqttStateTopic;
+    document["value_template"] = "{{ value_json.deviceMode }}";
+
+    JsonArray options = document["options"].to<JsonArray>();
+    options.add(DEVICE_MODE_TEXT);
+    options.add(DEVICE_MODE_CLOCK);
+    options.add(DEVICE_MODE_DATE);
+    options.add(DEVICE_MODE_COUNTDOWN);
+    options.add(DEVICE_MODE_MQTT);
+
+    publishHomeAssistantDiscoveryConfig("select", "mode", document);
+  }
+
+  //Text alignment select
+  {
+    JsonDocument document;
+    document["name"] = "Alignment";
+    document["unique_id"] = mqttUniqueClientId + "_alignment";
+    document["command_topic"] = mqttCommandTopic;
+    document["command_template"] = "{\"alignment\": \"{{ value }}\"}";
+    document["state_topic"] = mqttStateTopic;
+    document["value_template"] = "{{ value_json.alignment }}";
+
+    JsonArray options = document["options"].to<JsonArray>();
+    options.add(ALIGNMENT_MODE_LEFT);
+    options.add(ALIGNMENT_MODE_CENTER);
+    options.add(ALIGNMENT_MODE_RIGHT);
+
+    publishHomeAssistantDiscoveryConfig("select", "alignment", document);
+  }
+
+  //Flap speed number
+  {
+    JsonDocument document;
+    document["name"] = "Flap Speed";
+    document["unique_id"] = mqttUniqueClientId + "_flap_speed";
+    document["command_topic"] = mqttCommandTopic;
+    document["command_template"] = "{\"flapSpeed\": \"{{ value }}\"}";
+    document["state_topic"] = mqttStateTopic;
+    document["value_template"] = "{{ value_json.flapSpeed }}";
+    document["min"] = 1;
+    document["max"] = 100;
+    document["unit_of_measurement"] = "%";
+
+    publishHomeAssistantDiscoveryConfig("number", "flap_speed", document);
+  }
+
+  //MQTT mode text box - entering a value here switches the device into MQTT mode and shows it, matching
+  //what a plain {"inputText": "..."} command does once already in MQTT mode
+  {
+    JsonDocument document;
+    document["name"] = "MQTT Text";
+    document["unique_id"] = mqttUniqueClientId + "_mqtt_text";
+    document["command_topic"] = mqttCommandTopic;
+    document["command_template"] = "{\"deviceMode\": \"mqtt\", \"inputText\": \"{{ value }}\"}";
+    document["state_topic"] = mqttStateTopic;
+    document["value_template"] = "{{ value_json.mqttInputText }}";
+    document["max"] = 75;
+
+    publishHomeAssistantDiscoveryConfig("text", "mqtt_text", document);
+  }
+
+  //Last message sensor - whatever is actually currently shown on the display, regardless of mode
+  {
+    JsonDocument document;
+    document["name"] = "Last Message";
+    document["unique_id"] = mqttUniqueClientId + "_last_message";
+    document["state_topic"] = mqttStateTopic;
+    document["value_template"] = "{{ value_json.inputText }}";
+    document["icon"] = "mdi:card-text-outline";
+
+    publishHomeAssistantDiscoveryConfig("sensor", "last_message", document);
+  }
 }
 
 #endif
