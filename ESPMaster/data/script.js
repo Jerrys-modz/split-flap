@@ -359,11 +359,16 @@ function setMqttStatus(isMqttEnabled, isMqttConnected) {
 	labelMqttStatus.innerHTML = !isMqttEnabled ? "Disabled" : (isMqttConnected ? "Connected" : "Disconnected");
 }
 
-//Only makes sense to offer selecting MQTT Mode if MQTT is actually enabled on the device
+//Only makes sense to offer selecting MQTT Mode if MQTT is actually enabled on the device. Also hides the
+//tab-mqtt info pane, in case a stale persisted "mqtt" deviceMode got this far and setSavedMode() already
+//unhid it before we knew MQTT was disabled
 function showHideMqttModeOption(isMqttEnabled) {
 	if (!isMqttEnabled) {
 		var containerModeMqtt = document.getElementById("containerModeMqtt");
 		containerModeMqtt.classList.add("hidden");
+
+		var tabMqtt = document.getElementById("tab-mqtt");
+		tabMqtt.classList.add("hidden");
 	}
 }
 
