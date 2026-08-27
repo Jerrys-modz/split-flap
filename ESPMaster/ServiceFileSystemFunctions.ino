@@ -15,6 +15,21 @@ void loadValuesFromFileSystem() {
   flapSpeed = readFile(LittleFS, flapSpeedPath, "80");
   deviceMode = readFile(LittleFS, deviceModePath, DEVICE_MODE_TEXT);
 
+  //Guards against a mode that was persisted by a feature no longer compiled in (e.g. MQTT_ENABLE was
+  //turned back off after DEVICE_MODE_MQTT had been saved) - without this the mode-selection in loop()
+  //would silently match nothing and the display would just stop updating
+  bool isDeviceModeStillValid = deviceMode == DEVICE_MODE_TEXT || deviceMode == DEVICE_MODE_CLOCK || deviceMode == DEVICE_MODE_DATE || deviceMode == DEVICE_MODE_COUNTDOWN
+#if MQTT_ENABLE == true
+      || deviceMode == DEVICE_MODE_MQTT
+#endif
+  ;
+
+  if (!isDeviceModeStillValid) {
+    SerialPrintln("Persisted Device Mode is no longer valid for this build, falling back to text mode. Value: " + deviceMode);
+    deviceMode = DEVICE_MODE_TEXT;
+    writeFile(LittleFS, deviceModePath, deviceMode.c_str());
+  }
+
   String scheduledMessagesJson = readFile(LittleFS, scheduledMessagesPath, "");
   if (scheduledMessagesJson != "") {    
     SerialPrintln("Loading Scheduled Messages");

@@ -65,7 +65,10 @@ void mqttReconnect() {
   if (connected) {
     SerialPrintln("MQTT Connected!");
 
-    mqttClient.publish(mqttAvailabilityTopic.c_str(), "online", true);
+    if (!mqttClient.publish(mqttAvailabilityTopic.c_str(), "online", true)) {
+      SerialPrintln("Failed to publish MQTT availability");
+    }
+
     mqttClient.subscribe(mqttCommandTopic.c_str());
 
     if (mqttHomeAssistantDiscoveryEnabled) {
@@ -119,7 +122,9 @@ void publishMqttState() {
   serializeJson(document, jsonString);
 
   SerialPrintln("Publishing MQTT State: " + jsonString);
-  mqttClient.publish(mqttStateTopic.c_str(), jsonString.c_str(), true);
+  if (!mqttClient.publish(mqttStateTopic.c_str(), jsonString.c_str(), true)) {
+    SerialPrintln("Failed to publish MQTT state - payload may exceed MQTT_MAX_PACKET_SIZE, or the connection dropped");
+  }
 }
 
 //Handles an incoming message on the command topic
@@ -212,6 +217,9 @@ void applyMqttCommand(JsonDocument &commandDocument) {
     }
   }
 
+  //Unlike alignment/deviceMode above, this isn't restricted to a fixed set of strings, so we accept
+  //whatever JSON type the sender used (some MQTT clients, and Home Assistant's number entity, publish a
+  //bare number rather than a string) instead of requiring .is<const char*>()
   if (!commandDocument["flapSpeed"].isNull()) {
     String newFlapSpeedValue = commandDocument["flapSpeed"].as<String>();
 
@@ -301,7 +309,9 @@ void publishHomeAssistantDiscoveryConfig(const char* component, const char* obje
   String payload;
   serializeJson(document, payload);
 
-  mqttClient.publish(topic.c_str(), payload.c_str(), true);
+  if (!mqttClient.publish(topic.c_str(), payload.c_str(), true)) {
+    SerialPrintln("Failed to publish Home Assistant discovery config for: " + topic);
+  }
 }
 
 //Publishes Home Assistant MQTT Discovery configs for our entities - Mode/Alignment selects, a Flap Speed
@@ -466,57 +476,37 @@ void publishHomeAssistantDiscovery() {
   }
 
   //Action buttons, mirroring the web UI's "Actions" card
-  {
-    JsonDocument document;
-    document["name"] = "Reboot";
-    document["unique_id"] = mqttUniqueClientId + "_reboot";
-    document["command_topic"] = mqttCommandTopic;
-    document["payload_press"] = "{\"action\": \"reboot\"}";
-    document["device_class"] = "restart";
-    document["entity_category"] = "config";
-
-    publishHomeAssistantDiscoveryConfig("button", "reboot", document);
-  }
-
-  {
-    JsonDocument document;
-    document["name"] = "Reset Unit Calibration";
-    document["unique_id"] = mqttUniqueClientId + "_reset_units";
-    document["command_topic"] = mqttCommandTopic;
-    document["payload_press"] = "{\"action\": \"resetUnits\"}";
-    document["entity_category"] = "config";
-    document["icon"] = "mdi:restart-alert";
-
-    publishHomeAssistantDiscoveryConfig("button", "reset_units", document);
-  }
+  publishHomeAssistantButtonDiscovery("reboot", "Reboot", "reboot", "", "restart");
+  publishHomeAssistantButtonDiscovery("reset_units", "Reset Unit Calibration", "resetUnits", "mdi:restart-alert", "");
 
 #if WIFI_USE_DIRECT == false
-  {
-    JsonDocument document;
-    document["name"] = "Reset WiFi";
-    document["unique_id"] = mqttUniqueClientId + "_reset_wifi";
-    document["command_topic"] = mqttCommandTopic;
-    document["payload_press"] = "{\"action\": \"resetWifi\"}";
-    document["entity_category"] = "config";
-    document["icon"] = "mdi:wifi-off";
-
-    publishHomeAssistantDiscoveryConfig("button", "reset_wifi", document);
-  }
+  publishHomeAssistantButtonDiscovery("reset_wifi", "Reset WiFi", "resetWifi", "mdi:wifi-off", "");
 #endif
 
 #if OTA_ENABLE == true
-  {
-    JsonDocument document;
-    document["name"] = "OTA Mode";
-    document["unique_id"] = mqttUniqueClientId + "_ota";
-    document["command_topic"] = mqttCommandTopic;
-    document["payload_press"] = "{\"action\": \"ota\"}";
-    document["entity_category"] = "config";
-    document["icon"] = "mdi:upload";
-
-    publishHomeAssistantDiscoveryConfig("button", "ota", document);
-  }
+  publishHomeAssistantButtonDiscovery("ota", "OTA Mode", "ota", "mdi:upload", "");
 #endif
+}
+
+//Publishes a Home Assistant MQTT button entity that triggers a one-shot {"action": "..."} command (see
+//applyMqttCommand()). Pass "" for icon/deviceClass to omit either
+void publishHomeAssistantButtonDiscovery(const char* objectId, const char* name, const char* actionValue, const char* icon, const char* deviceClass) {
+  JsonDocument document;
+  document["name"] = name;
+  document["unique_id"] = mqttUniqueClientId + "_" + objectId;
+  document["command_topic"] = mqttCommandTopic;
+  document["payload_press"] = String("{\"action\": \"") + actionValue + "\"}";
+  document["entity_category"] = "config";
+
+  if (strlen(icon) > 0) {
+    document["icon"] = icon;
+  }
+
+  if (strlen(deviceClass) > 0) {
+    document["device_class"] = deviceClass;
+  }
+
+  publishHomeAssistantDiscoveryConfig("button", objectId, document);
 }
 
 #endif
